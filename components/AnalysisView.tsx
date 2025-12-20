@@ -1,8 +1,9 @@
 
 import React, { useState, useRef } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line, PieChart, Pie, Cell, ScatterChart, Scatter } from 'recharts';
-import { Hypothesis, ChatMessage, Dataset } from '../types';
-import { generateBriefingAudio, decodeBase64ToUint8Array, decodeAudioData, transcribeAudio } from '../services/geminiService';
+import ReactMarkdown from 'react-markdown';
+import { Hypothesis, ChatMessage, Dataset } from '../types.ts';
+import { generateBriefingAudio, decodeBase64ToUint8Array, decodeAudioData, transcribeAudio } from '../services/geminiService.ts';
 
 interface AnalysisViewProps {
   dataset: Dataset;
@@ -192,10 +193,14 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
           </div>
         )}
 
-        <div className={`prose prose-indigo max-w-none text-slate-600 leading-relaxed whitespace-pre-wrap transition-opacity duration-1000 ${
+        <div className={`prose prose-indigo max-w-none text-slate-600 leading-relaxed transition-opacity duration-1000 ${
           isComplete ? 'opacity-100' : 'opacity-40 animate-pulse'
         }`}>
-          {summary || "The Council of Agents is currently synthesizing all findings to provide a final answer to your mission objective..."}
+          {summary ? (
+            <ReactMarkdown>{summary}</ReactMarkdown>
+          ) : (
+            "The Council of Agents is currently synthesizing all findings to provide a final answer to your mission objective..."
+          )}
         </div>
       </div>
 
@@ -359,7 +364,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
                 onClick={toggleRecording}
                 disabled={isProcessingChat || isTranscribing}
                 className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all ${
-                  isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  isRecording ? 'bg-red-50 text-white animate-pulse' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                 }`}
               >
                 <i className={`fas ${isRecording ? 'fa-stop' : 'fa-microphone'}`}></i>

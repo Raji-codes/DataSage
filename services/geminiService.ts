@@ -1,8 +1,17 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
-import { Dataset, Hypothesis, ChatMessage } from "../types";
+import { Dataset, Hypothesis, ChatMessage } from "../types.ts";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Helper to safely get API key without crashing in environments without process shim
+const getApiKey = () => {
+  try {
+    return (typeof process !== 'undefined' && process.env?.API_KEY) || '';
+  } catch (e) {
+    return '';
+  }
+};
+
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export const profileDataset = async (dataset: Dataset) => {
   const sampleData = JSON.stringify(dataset.rows.slice(0, 15));

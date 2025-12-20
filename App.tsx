@@ -1,9 +1,9 @@
 
 import React, { useState, useRef } from 'react';
-import { FileUpload } from './components/FileUpload';
-import { AnalysisView } from './components/AnalysisView';
-import { Dataset, AnalysisState, Hypothesis, ChatMessage } from './types';
-import { profileDataset, generateHypotheses, testHypothesis, queryCouncil, generateExecutiveVerdict, transcribeAudio } from './services/geminiService';
+import { FileUpload } from './components/FileUpload.tsx';
+import { AnalysisView } from './components/AnalysisView.tsx';
+import { Dataset, AnalysisState, Hypothesis, ChatMessage } from './types.ts';
+import { profileDataset, generateHypotheses, testHypothesis, queryCouncil, generateExecutiveVerdict, transcribeAudio } from './services/geminiService.ts';
 
 const App: React.FC = () => {
   const [dataset, setDataset] = useState<Dataset | null>(null);
