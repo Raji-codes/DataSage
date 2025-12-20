@@ -1,0 +1,5 @@
+{
+  "name": "DataSage - Autonomous Data Scientist",
+  "description": "An intelligent autonomous agent that cleans raw data, generates hypotheses, runs statistical tests, and visualizes insights for non-technical users using Gemini 3 Pro.",
+  "requestFramePermissions": []
+}
