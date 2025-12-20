@@ -10,6 +10,12 @@ export interface Dataset {
   summary?: string;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'sage';
+  content: string;
+  timestamp: Date;
+}
+
 export interface Hypothesis {
   id: string;
   title: string;
@@ -27,4 +33,6 @@ export interface AnalysisState {
   logs: string[];
   hypotheses: Hypothesis[];
   summary: string;
+  chat: ChatMessage[];
+  isAudioPlaying: boolean;
 }
