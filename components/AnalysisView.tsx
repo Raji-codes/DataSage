@@ -2,8 +2,9 @@
 import React, { useState, useRef } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line, PieChart, Pie, Cell, ScatterChart, Scatter } from 'recharts';
 import ReactMarkdown from 'react-markdown';
-import { Hypothesis, ChatMessage, Dataset } from '../types.ts';
-import { generateBriefingAudio, decodeBase64ToUint8Array, decodeAudioData, transcribeAudio } from '../services/geminiService.ts';
+import { Hypothesis, ChatMessage, Dataset } from '../types';
+import { generateBriefingAudio, decodeBase64ToUint8Array, decodeAudioData, transcribeAudio } from '../services/geminiService';
+import { encryptData } from '../services/securityService';
 
 interface AnalysisViewProps {
   dataset: Dataset;
@@ -24,10 +25,37 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [copied, setCopied] = useState(false);
   
+  // Encryption state
+  const [showEncryptModal, setShowEncryptModal] = useState(false);
+  const [encryptPassword, setEncryptPassword] = useState('');
+  const [isEncrypting, setIsEncrypting] = useState(false);
+  
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  const handleSecureExport = async () => {
+    if (!encryptPassword) return;
+    setIsEncrypting(true);
+    try {
+      const payload = JSON.stringify({ summary, hypotheses, timestamp: new Date() });
+      const encrypted = await encryptData(payload, encryptPassword);
+      
+      const blob = new Blob([encrypted], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${dataset.name}_secure_analysis.sage`;
+      a.click();
+      setShowEncryptModal(false);
+      setEncryptPassword('');
+    } catch (e) {
+      console.error("Encryption failed", e);
+    } finally {
+      setIsEncrypting(false);
+    }
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(summary);
@@ -149,6 +177,13 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
           {isComplete && (
             <div className="flex items-center space-x-2">
               <button 
+                onClick={() => setShowEncryptModal(true)}
+                className="p-2.5 bg-slate-900 text-indigo-400 rounded-full hover:bg-black transition-all hover:scale-110 shadow-lg shadow-indigo-900/20"
+                title="Secure Encrypted Export"
+              >
+                <i className="fas fa-lock"></i>
+              </button>
+              <button 
                 onClick={handleCopy}
                 className="p-2.5 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 transition-colors"
                 title="Copy Report to Clipboard"
@@ -176,6 +211,43 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
             </div>
           )}
         </div>
+
+        {/* Encrypt Modal */}
+        {showEncryptModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl border border-slate-200 animate-fadeInScale">
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                  <i className="fas fa-shield-alt text-2xl text-white"></i>
+                </div>
+                <h3 className="text-xl font-black text-slate-900">Secure Report Vault</h3>
+                <p className="text-xs text-slate-500 mt-2 font-medium">Encrypt your findings with a master password for safe sharing and storage.</p>
+              </div>
+              <input 
+                type="password" 
+                value={encryptPassword}
+                onChange={(e) => setEncryptPassword(e.target.value)}
+                placeholder="Master Password"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm mb-4 focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+              />
+              <div className="flex space-x-3">
+                <button 
+                  onClick={() => setShowEncryptModal(false)}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold text-xs uppercase tracking-widest text-slate-500 hover:bg-slate-100 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSecureExport}
+                  disabled={!encryptPassword || isEncrypting}
+                  className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50"
+                >
+                  {isEncrypting ? <i className="fas fa-circle-notch fa-spin"></i> : 'Lock & Export'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {isPlaying && (
           <div className="flex items-end space-x-1.5 h-12 mb-6 px-4 bg-indigo-50/30 rounded-2xl border border-indigo-50 items-center justify-center">

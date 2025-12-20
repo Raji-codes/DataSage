@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
-import { Dataset, Hypothesis, ChatMessage } from "../types.ts";
+import { Dataset, Hypothesis, ChatMessage } from "../types";
 
 // Helper to safely get API key without crashing in environments without process shim
 const getApiKey = () => {

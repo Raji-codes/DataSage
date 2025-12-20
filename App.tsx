@@ -1,17 +1,24 @@
 
-import React, { useState, useRef } from 'react';
-import { FileUpload } from './components/FileUpload.tsx';
-import { AnalysisView } from './components/AnalysisView.tsx';
-import { Dataset, AnalysisState, Hypothesis, ChatMessage } from './types.ts';
-import { profileDataset, generateHypotheses, testHypothesis, queryCouncil, generateExecutiveVerdict, transcribeAudio } from './services/geminiService.ts';
+import React, { useState, useRef, useEffect } from 'react';
+import { FileUpload } from './components/FileUpload';
+import { AnalysisView } from './components/AnalysisView';
+import { Login } from './components/Login';
+import { Dataset, AnalysisState, Hypothesis, ChatMessage } from './types';
+import { profileDataset, generateHypotheses, testHypothesis, queryCouncil, generateExecutiveVerdict, transcribeAudio } from './services/geminiService';
+import { maskSensitiveData } from './services/securityService';
+import { isSessionActive, clearSession, getIdentity, UserIdentity } from './services/authService';
 
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(isSessionActive());
+  const [userIdentity, setUserIdentity] = useState<UserIdentity | null>(getIdentity());
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [userGoal, setUserGoal] = useState('');
   const [pendingDataset, setPendingDataset] = useState<Dataset | null>(null);
   const [isProcessingChat, setIsProcessingChat] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [privacyMode, setPrivacyMode] = useState(true);
+  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -24,6 +31,19 @@ const App: React.FC = () => {
     chat: [],
     isAudioPlaying: false,
   });
+
+  // Re-sync identity when authentication state changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      setUserIdentity(getIdentity());
+    }
+  }, [isAuthenticated]);
+
+  const handleLogout = () => {
+    clearSession();
+    setIsAuthenticated(false);
+    reset();
+  };
 
   const toggleRecording = async () => {
     if (isRecording) {
@@ -84,7 +104,14 @@ const App: React.FC = () => {
   const startProcess = async () => {
     if (!pendingDataset) return;
     
-    const data = pendingDataset;
+    let data = pendingDataset;
+    
+    if (privacyMode) {
+      addLog("🛡️ Privacy Shield Active: Masking sensitive PII columns...");
+      const maskedRows = maskSensitiveData(data.headers, data.rows);
+      data = { ...data, rows: maskedRows };
+    }
+
     setDataset(data);
     setAnalysis({
       isProcessing: true,
@@ -102,70 +129,36 @@ const App: React.FC = () => {
       addLog("Data profile generated successfully.");
       
       setAnalysis(prev => ({ ...prev, stage: 'hypothesizing' }));
-      if (userGoal) {
-        addLog(`Crafting hypotheses based on goal: "${userGoal}"...`);
-      } else {
-        addLog("Generating autonomous hypotheses based on discovered patterns...");
-      }
-      
       const hypotheses = await generateHypotheses(data, profile, userGoal);
       setAnalysis(prev => ({ ...prev, hypotheses }));
-      addLog(`Created ${hypotheses.length} hypotheses for testing.`);
-
-      setAnalysis(prev => ({ ...prev, stage: 'analyzing' }));
-      const updatedHypotheses: Hypothesis[] = [...hypotheses];
       
-      const finishedHypotheses: Hypothesis[] = [];
-      for (let i = 0; i < updatedHypotheses.length; i++) {
-        const h = updatedHypotheses[i];
-        addLog(`Testing hypothesis ${i+1}/${updatedHypotheses.length}: ${h.title}...`);
-        
-        setAnalysis(prev => ({
-          ...prev,
-          hypotheses: prev.hypotheses.map((hyp, idx) => 
-            idx === i ? { ...hyp, status: 'analyzing' } : hyp
-          )
-        }));
-
+      setAnalysis(prev => ({ ...prev, stage: 'analyzing' }));
+      for (let i = 0; i < hypotheses.length; i++) {
+        const h = hypotheses[i];
+        addLog(`Testing hypothesis: ${h.title}...`);
         const result = await testHypothesis(data, h);
         const completedH = { ...h, ...result, status: 'completed' } as Hypothesis;
-        finishedHypotheses.push(completedH);
-
         setAnalysis(prev => ({
           ...prev,
-          hypotheses: prev.hypotheses.map((hyp, idx) => 
-            idx === i ? completedH : hyp
-          )
+          hypotheses: prev.hypotheses.map((hyp, idx) => idx === i ? completedH : hyp)
         }));
-        
-        addLog(`Analysis complete for: ${h.title}`);
       }
 
       setAnalysis(prev => ({ ...prev, stage: 'reporting' }));
-      addLog("Council is synthesizing all findings into a final verdict...");
-      
-      const finalVerdict = await generateExecutiveVerdict(data, profile, finishedHypotheses, userGoal);
-      
-      setAnalysis(prev => ({ 
-        ...prev, 
-        summary: finalVerdict, 
-        isProcessing: false 
-      }));
-      addLog("MISSION ACCOMPLISHED: Final report and answer are ready.");
-
+      const finalVerdict = await generateExecutiveVerdict(data, profile, hypotheses, userGoal);
+      setAnalysis(prev => ({ ...prev, summary: finalVerdict, isProcessing: false }));
+      addLog("MISSION ACCOMPLISHED.");
     } catch (error) {
       console.error(error);
-      addLog("CRITICAL ERROR during analysis. Check console.");
+      addLog("CRITICAL ERROR during analysis.");
       setAnalysis(prev => ({ ...prev, isProcessing: false, stage: 'idle' }));
     }
   };
 
   const handleSendMessage = async (content: string) => {
     if (!dataset) return;
-    
     const userMsg: ChatMessage = { role: 'user', content, timestamp: new Date() };
     setAnalysis(prev => ({ ...prev, chat: [...prev.chat, userMsg] }));
-    
     setIsProcessingChat(true);
     try {
       const response = await queryCouncil(dataset, content, analysis.chat, analysis.summary);
@@ -183,15 +176,13 @@ const App: React.FC = () => {
     setPendingDataset(null);
     setUserGoal('');
     setAnalysis({
-      isProcessing: false,
-      stage: 'idle',
-      logs: [],
-      hypotheses: [],
-      summary: '',
-      chat: [],
-      isAudioPlaying: false,
+      isProcessing: false, stage: 'idle', logs: [], hypotheses: [], summary: '', chat: [], isAudioPlaying: false,
     });
   };
+
+  if (!isAuthenticated) {
+    return <Login onAuthenticated={() => setIsAuthenticated(true)} />;
+  }
 
   return (
     <div className="min-h-screen pb-20 bg-slate-50">
@@ -207,20 +198,39 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          <div className="flex items-center space-x-4">
-            {dataset && (
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center space-x-3 bg-slate-100/50 px-4 py-1.5 rounded-2xl border border-slate-200 shadow-sm group">
+               <div className="w-7 h-7 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-[10px] font-black border border-indigo-200 shadow-inner group-hover:scale-110 transition-transform">
+                  {userIdentity?.username?.charAt(0).toUpperCase() || 'U'}
+               </div>
+               <div className="flex flex-col">
+                  <span className="text-[10px] font-black text-slate-700 leading-none">Agent {userIdentity?.username || 'User'}</span>
+                  <span className="text-[8px] font-bold text-slate-400 mt-0.5">{userIdentity?.phone || 'Secured Profile'}</span>
+               </div>
+            </div>
+
+            <div className="flex items-center space-x-4">
+              {privacyMode && (
+                <div className="flex items-center space-x-1.5 bg-green-50 px-2 py-1 rounded-md border border-green-100 animate-pulse">
+                  <i className="fas fa-shield-alt text-green-600 text-[10px]"></i>
+                  <span className="text-[8px] font-black uppercase text-green-700 tracking-wider">Privacy Active</span>
+                </div>
+              )}
+              
               <button 
-                onClick={reset}
-                className="text-slate-500 hover:text-red-600 text-xs font-bold uppercase tracking-widest transition-colors"
+                onClick={handleLogout}
+                className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-all group border border-slate-200 shadow-sm"
+                title="End Secure Session"
               >
-                Reset
+                <i className="fas fa-sign-out-alt text-xs group-hover:rotate-12 transition-transform"></i>
               </button>
-            )}
-            <div className="flex items-center space-x-2 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
-              <div className={`w-2 h-2 rounded-full ${analysis.isProcessing ? 'bg-indigo-500 animate-pulse' : (analysis.stage === 'reporting' ? 'bg-green-500' : 'bg-slate-300')}`}></div>
-              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-                {analysis.stage === 'reporting' && !analysis.isProcessing ? 'mission complete' : analysis.stage}
-              </span>
+
+              <div className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-full shadow-lg border border-slate-700">
+                <div className={`w-1.5 h-1.5 rounded-full ${analysis.isProcessing ? 'bg-indigo-400 animate-pulse' : 'bg-green-400'}`}></div>
+                <span className="text-[9px] font-black text-white uppercase tracking-widest">
+                  {analysis.stage}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -229,6 +239,11 @@ const App: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
         {!dataset ? (
           <div className="max-w-2xl mx-auto text-center py-8">
+             <div className="mb-8 inline-block">
+               <span className="bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-[0.2em] px-4 py-2 rounded-full border border-indigo-100">
+                 Welcome Back, Investigator {userIdentity?.username.split(' ')[0]}
+               </span>
+             </div>
             <h2 className="text-5xl font-black text-slate-900 mb-6 leading-tight">
               Turn raw data into <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">intelligence</span>.
             </h2>
@@ -238,9 +253,20 @@ const App: React.FC = () => {
 
             <div className="space-y-6 bg-white p-8 rounded-[2rem] shadow-xl border border-slate-200">
               <div className="text-left">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">
-                  1. Load Dataset
-                </label>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                    1. Load Dataset
+                  </label>
+                  <button 
+                    onClick={() => setPrivacyMode(!privacyMode)}
+                    className={`flex items-center space-x-2 text-[9px] font-black uppercase px-3 py-1.5 rounded-lg border transition-all ${
+                      privacyMode ? 'bg-green-600 text-white border-green-700' : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    <i className={`fas ${privacyMode ? 'fa-lock' : 'fa-lock-open'}`}></i>
+                    <span>Privacy Shield: {privacyMode ? 'Enabled' : 'Disabled'}</span>
+                  </button>
+                </div>
                 <FileUpload onUpload={handleDatasetReady} />
                 {pendingDataset && (
                    <div className="mt-3 flex items-center space-x-2 text-green-600 text-xs font-bold animate-fadeIn">
@@ -258,7 +284,7 @@ const App: React.FC = () => {
                   <button 
                     onClick={toggleRecording}
                     className={`flex items-center space-x-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full transition-all ${
-                      isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      isRecording ? 'bg-red-50 text-white animate-pulse' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                     }`}
                   >
                     <i className={`fas ${isRecording ? 'fa-stop' : 'fa-microphone'}`}></i>
@@ -271,14 +297,6 @@ const App: React.FC = () => {
                   placeholder="e.g. 'I want to understand what drives customer churn' or 'How does seasonality affect sales?'"
                   className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-none placeholder:text-slate-400"
                 />
-                {isTranscribing && (
-                  <div className="absolute inset-x-4 bottom-4 flex items-center justify-center">
-                    <div className="bg-white/80 backdrop-blur-sm px-3 py-1 rounded-lg border border-slate-200 flex items-center space-x-2 shadow-sm">
-                      <i className="fas fa-spinner fa-spin text-indigo-500 text-xs"></i>
-                      <span className="text-[10px] font-bold text-slate-600 uppercase">Transcribing...</span>
-                    </div>
-                  </div>
-                )}
               </div>
 
               <button 
@@ -289,22 +307,6 @@ const App: React.FC = () => {
                 <i className="fas fa-rocket"></i>
                 <span>{userGoal ? 'Begin Directed Analysis' : 'Begin Full Autonomous Analysis'}</span>
               </button>
-            </div>
-            
-            <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-              {[
-                { icon: 'fa-broom', title: 'Scrutinizer', desc: 'Agentic cleaning and data profiling.' },
-                { icon: 'fa-vial', title: 'Theorist', desc: 'Predictive hypothesis generation.' },
-                { icon: 'fa-chart-area', title: 'Statistician', desc: 'Deep-dive visual experimentation.' }
-              ].map((item, idx) => (
-                <div key={idx} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center mb-4">
-                    <i className={`fas ${item.icon} text-indigo-500`}></i>
-                  </div>
-                  <h3 className="font-bold text-slate-800 mb-1">{item.title}</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">{item.desc}</p>
-                </div>
-              ))}
             </div>
           </div>
         ) : (
@@ -328,14 +330,6 @@ const App: React.FC = () => {
                     <span className="text-xs font-medium text-slate-400">Dimensions</span>
                     <span className="text-xl font-black text-white">{dataset.headers.length}</span>
                   </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Key Dimensions</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {dataset.headers.slice(0, 8).map(h => (
-                        <span key={h} className="text-[9px] bg-slate-800 border border-slate-700 px-2 py-1 rounded-md text-slate-300">{h}</span>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -348,12 +342,6 @@ const App: React.FC = () => {
                        <span>{log}</span>
                     </div>
                   ))}
-                  {analysis.isProcessing && (
-                    <div className="flex items-center space-x-2 italic text-indigo-500 animate-pulse">
-                      <i className="fas fa-circle-notch fa-spin"></i>
-                      <span>Council is deliberating...</span>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -371,27 +359,6 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
-
-      {analysis.isProcessing && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-8 py-4 rounded-2xl shadow-2xl border border-slate-800 flex items-center space-x-6 z-50 animate-bounce">
-          <div className="flex space-x-1.5">
-            <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-pulse"></div>
-            <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-pulse delay-75"></div>
-            <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-pulse delay-150"></div>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Agent Status</span>
-            <span className="text-xs font-bold uppercase tracking-widest">{analysis.stage}...</span>
-          </div>
-        </div>
-      )}
-      
-      {!analysis.isProcessing && analysis.stage === 'reporting' && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center space-x-4 z-50 animate-fadeIn transition-all">
-          <i className="fas fa-check-circle text-xl"></i>
-          <span className="font-bold uppercase tracking-widest text-sm">Mission Accomplished</span>
-        </div>
-      )}
     </div>
   );
 };
