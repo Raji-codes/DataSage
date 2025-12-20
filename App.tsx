@@ -1,15 +1,20 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { AnalysisView } from './components/AnalysisView';
 import { Dataset, AnalysisState, Hypothesis, ChatMessage } from './types';
-import { profileDataset, generateHypotheses, testHypothesis, queryCouncil, generateExecutiveVerdict } from './services/geminiService';
+import { profileDataset, generateHypotheses, testHypothesis, queryCouncil, generateExecutiveVerdict, transcribeAudio } from './services/geminiService';
 
 const App: React.FC = () => {
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [userGoal, setUserGoal] = useState('');
   const [pendingDataset, setPendingDataset] = useState<Dataset | null>(null);
   const [isProcessingChat, setIsProcessingChat] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
   const [analysis, setAnalysis] = useState<AnalysisState>({
     isProcessing: false,
     stage: 'idle',
@@ -19,6 +24,51 @@ const App: React.FC = () => {
     chat: [],
     isAudioPlaying: false,
   });
+
+  const toggleRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = (reader.result as string).split(',')[1];
+          setIsTranscribing(true);
+          try {
+            const transcription = await transcribeAudio(base64Audio, 'audio/webm');
+            if (transcription) {
+              setUserGoal(prev => prev ? `${prev} ${transcription}` : transcription);
+            }
+          } catch (error) {
+            console.error("Transcription failed", error);
+          } finally {
+            setIsTranscribing(false);
+          }
+        };
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Microphone access denied", error);
+    }
+  };
 
   const addLog = (message: string) => {
     setAnalysis(prev => ({
@@ -200,16 +250,35 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              <div className="text-left">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">
-                  2. Define Mission Objective (Optional)
-                </label>
+              <div className="text-left relative">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                    2. Define Mission Objective (Optional)
+                  </label>
+                  <button 
+                    onClick={toggleRecording}
+                    className={`flex items-center space-x-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full transition-all ${
+                      isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
+                  >
+                    <i className={`fas ${isRecording ? 'fa-stop' : 'fa-microphone'}`}></i>
+                    <span>{isRecording ? 'Recording...' : isTranscribing ? 'Converting...' : 'Use Voice'}</span>
+                  </button>
+                </div>
                 <textarea 
                   value={userGoal}
                   onChange={(e) => setUserGoal(e.target.value)}
                   placeholder="e.g. 'I want to understand what drives customer churn' or 'How does seasonality affect sales?'"
                   className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-none placeholder:text-slate-400"
                 />
+                {isTranscribing && (
+                  <div className="absolute inset-x-4 bottom-4 flex items-center justify-center">
+                    <div className="bg-white/80 backdrop-blur-sm px-3 py-1 rounded-lg border border-slate-200 flex items-center space-x-2 shadow-sm">
+                      <i className="fas fa-spinner fa-spin text-indigo-500 text-xs"></i>
+                      <span className="text-[10px] font-bold text-slate-600 uppercase">Transcribing...</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button 

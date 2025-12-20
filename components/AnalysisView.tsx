@@ -2,7 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line, PieChart, Pie, Cell, ScatterChart, Scatter } from 'recharts';
 import { Hypothesis, ChatMessage, Dataset } from '../types';
-import { generateBriefingAudio, decodeBase64ToUint8Array, decodeAudioData } from '../services/geminiService';
+import { generateBriefingAudio, decodeBase64ToUint8Array, decodeAudioData, transcribeAudio } from '../services/geminiService';
 
 interface AnalysisViewProps {
   dataset: Dataset;
@@ -19,8 +19,65 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [chatInput, setChatInput] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(summary);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const toggleRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = (reader.result as string).split(',')[1];
+          setIsTranscribing(true);
+          try {
+            const transcription = await transcribeAudio(base64Audio, 'audio/webm');
+            if (transcription) {
+              setChatInput(prev => prev ? `${prev} ${transcription}` : transcription);
+            }
+          } catch (error) {
+            console.error("Transcription failed", error);
+          } finally {
+            setIsTranscribing(false);
+          }
+        };
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Microphone access denied", error);
+    }
+  };
 
   const playBriefing = async () => {
     if (isPlaying) {
@@ -89,24 +146,33 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
           </div>
           
           {isComplete && (
-            <button 
-              onClick={playBriefing}
-              disabled={isAudioLoading}
-              className={`flex items-center space-x-2 px-6 py-2.5 rounded-full transition-all ${
-                isPlaying ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'
-              } hover:scale-105 active:scale-95 disabled:opacity-50 shadow-sm`}
-            >
-              {isAudioLoading ? (
-                <i className="fas fa-circle-notch fa-spin"></i>
-              ) : isPlaying ? (
-                <i className="fas fa-stop"></i>
-              ) : (
-                <i className="fas fa-volume-up"></i>
-              )}
-              <span className="text-xs font-black uppercase tracking-wider">
-                {isPlaying ? 'Stop' : isAudioLoading ? 'Synthesizing...' : 'Hear Audio Briefing'}
-              </span>
-            </button>
+            <div className="flex items-center space-x-2">
+              <button 
+                onClick={handleCopy}
+                className="p-2.5 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 transition-colors"
+                title="Copy Report to Clipboard"
+              >
+                <i className={`fas ${copied ? 'fa-check text-green-600' : 'fa-copy'}`}></i>
+              </button>
+              <button 
+                onClick={playBriefing}
+                disabled={isAudioLoading}
+                className={`flex items-center space-x-2 px-6 py-2.5 rounded-full transition-all ${
+                  isPlaying ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'
+                } hover:scale-105 active:scale-95 disabled:opacity-50 shadow-sm`}
+              >
+                {isAudioLoading ? (
+                  <i className="fas fa-circle-notch fa-spin"></i>
+                ) : isPlaying ? (
+                  <i className="fas fa-stop"></i>
+                ) : (
+                  <i className="fas fa-volume-up"></i>
+                )}
+                <span className="text-xs font-black uppercase tracking-wider">
+                  {isPlaying ? 'Stop' : isAudioLoading ? 'Synthesizing...' : 'Hear Audio Briefing'}
+                </span>
+              </button>
+            </div>
           )}
         </div>
         
@@ -126,7 +192,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
           </div>
         )}
 
-        <div className={`prose prose-slate max-w-none text-slate-600 leading-relaxed whitespace-pre-wrap text-lg font-medium transition-opacity duration-1000 ${
+        <div className={`prose prose-indigo max-w-none text-slate-600 leading-relaxed whitespace-pre-wrap transition-opacity duration-1000 ${
           isComplete ? 'opacity-100' : 'opacity-40 animate-pulse'
         }`}>
           {summary || "The Council of Agents is currently synthesizing all findings to provide a final answer to your mission objective..."}
@@ -271,7 +337,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
                   </div>
                 </div>
               ))}
-              {isProcessingChat && (
+              {(isProcessingChat || isTranscribing) && (
                 <div className="flex justify-start">
                   <div className="bg-slate-800 p-5 rounded-3xl rounded-bl-none border border-slate-700">
                     <div className="flex space-x-2">
@@ -279,22 +345,35 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ dataset, hypotheses,
                       <div className="w-2.5 h-2.5 bg-indigo-400 rounded-full animate-bounce delay-100"></div>
                       <div className="w-2.5 h-2.5 bg-indigo-400 rounded-full animate-bounce delay-200"></div>
                     </div>
+                    {isTranscribing && (
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Listening to your voice...</p>
+                    )}
                   </div>
                 </div>
               )}
             </div>
 
             <form onSubmit={handleSubmitChat} className="flex space-x-3 bg-slate-800/50 p-2 rounded-2xl border border-slate-700/50">
+              <button 
+                type="button"
+                onClick={toggleRecording}
+                disabled={isProcessingChat || isTranscribing}
+                className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all ${
+                  isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                <i className={`fas ${isRecording ? 'fa-stop' : 'fa-microphone'}`}></i>
+              </button>
               <input 
                 type="text" 
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask for more details, another chart, or a new theory..."
+                placeholder={isTranscribing ? "Transcribing..." : "Ask for more details, another chart, or a new theory..."}
                 className="flex-1 bg-transparent px-4 py-3 text-sm focus:outline-none transition-all text-white placeholder-slate-500"
               />
               <button 
                 type="submit"
-                disabled={isProcessingChat || !chatInput.trim()}
+                disabled={isProcessingChat || !chatInput.trim() || isTranscribing}
                 className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-8 py-3 rounded-xl transition-all shadow-lg shadow-indigo-900/20 active:scale-95 flex items-center space-x-2"
               >
                 <span className="font-black text-xs uppercase tracking-widest">Inquire</span>

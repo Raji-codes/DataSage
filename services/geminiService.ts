@@ -118,21 +118,29 @@ export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): 
 };
 
 export const generateExecutiveVerdict = async (dataset: Dataset, profile: string, hypotheses: Hypothesis[], userGoal?: string): Promise<string> => {
-  const findingsSummary = hypotheses.map(h => `- ${h.title}: ${h.finding}`).join('\n');
+  const findingsSummary = hypotheses.map(h => `- **${h.title}**: ${h.finding}`).join('\n');
   const goalContext = userGoal 
-    ? `The user's specific question was: "${userGoal}". YOU MUST DIRECTLY ANSWER THIS QUESTION based on the findings.` 
+    ? `The user's specific mission objective was: "${userGoal}". YOU MUST DIRECTLY RESOLVE THIS OBJECTIVE in the first paragraph.` 
     : "Summarize the overall health and major patterns of this dataset.";
 
   const prompt = `
-    Act as the DataSage Council. You have just completed a deep-dive analysis.
-    Dataset: ${dataset.name}
-    Initial Profile: ${profile}
-    Tested Hypotheses & Findings:
+    Act as the DataSage Council (Expert Profiler, Theorist, and Statistician). 
+    You have just completed an autonomous analysis of the dataset: ${dataset.name}.
+
+    Context:
+    - Data Profile: ${profile}
+    - Statistical Test Results:
     ${findingsSummary}
 
-    Task: ${goalContext}
+    MISSION: Provide a structured Executive Verdict.
     
-    Structure your response as a professional executive verdict. Be decisive, cite the data findings, and if the user asked a specific question, ensure the very first paragraph answers it.
+    FORMATTING RULES:
+    1. Start with a "# EXECUTIVE VERDICT" header.
+    2. The first section must be "## MISSION RESOLUTION" - answer the user's prompt: "${userGoal || 'Analyze data patterns'}".
+    3. The second section should be "## KEY INSIGHTS" - summarize the 3 most critical statistical findings.
+    4. The third section should be "## STRATEGIC RECOMMENDATION" - what should the user do next?
+    
+    Use professional, decisive, and data-driven language. Use Markdown for all formatting.
   `;
 
   const response = await ai.models.generateContent({
@@ -171,8 +179,23 @@ export const queryCouncil = async (dataset: Dataset, query: string, history: Cha
   return response.text || "The Council is currently pondering that. Please try another query.";
 };
 
+export const transcribeAudio = async (base64Data: string, mimeType: string): Promise<string> => {
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: [
+      {
+        parts: [
+          { text: "Transcribe the following audio precisely. Only return the transcribed text, nothing else. If there is no speech, return an empty string." },
+          { inlineData: { data: base64Data, mimeType } }
+        ]
+      }
+    ]
+  });
+  return response.text?.trim() || "";
+};
+
 export const generateBriefingAudio = async (text: string) => {
-  const prompt = `Read this executive summary clearly and professionally, like a high-end data consultant: ${text}`;
+  const prompt = `Read this executive summary clearly and professionally, like a high-end data consultant. Only read the main body text, skip headers like 'Executive Verdict': ${text}`;
   
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
