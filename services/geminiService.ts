@@ -2,7 +2,10 @@
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
 import { Dataset, Hypothesis, ChatMessage } from "../types";
 
-// Helper to safely get API key without crashing in environments without process shim
+/**
+ * Helper to safely get API key from environment.
+ * Note: process.env.API_KEY is injected by the environment.
+ */
 const getApiKey = () => {
   try {
     return (typeof process !== 'undefined' && process.env?.API_KEY) || '';
@@ -11,9 +14,14 @@ const getApiKey = () => {
   }
 };
 
-const ai = new GoogleGenAI({ apiKey: getApiKey() });
+/**
+ * Factory to create a new AI instance.
+ * This ensures we always use the current state of process.env.API_KEY.
+ */
+const getAIClient = () => new GoogleGenAI({ apiKey: getApiKey() });
 
 export const profileDataset = async (dataset: Dataset) => {
+  const ai = getAIClient();
   const sampleData = JSON.stringify(dataset.rows.slice(0, 15));
   const prompt = `
     Analyze this dataset structure and first few rows. 
@@ -27,18 +35,17 @@ export const profileDataset = async (dataset: Dataset) => {
     3. Summarize the key columns and their importance.
   `;
 
+  // Using Flash for initial profiling for speed and reliability
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-flash-preview',
     contents: prompt,
-    config: {
-      thinkingConfig: { thinkingBudget: 2000 }
-    }
   });
 
   return response.text;
 };
 
 export const generateHypotheses = async (dataset: Dataset, profilingInfo: string, userGoal?: string): Promise<Hypothesis[]> => {
+  const ai = getAIClient();
   const goalContext = userGoal 
     ? `The user has a specific analytical goal: "${userGoal}". Prioritize generating hypotheses that directly investigate this goal.` 
     : "The user has not specified a goal. Generate 4-5 diverse and high-impact hypotheses based on the data patterns.";
@@ -57,6 +64,7 @@ export const generateHypotheses = async (dataset: Dataset, profilingInfo: string
     model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
+      thinkingConfig: { thinkingBudget: 4000 },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -82,6 +90,7 @@ export const generateHypotheses = async (dataset: Dataset, profilingInfo: string
 };
 
 export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): Promise<Partial<Hypothesis>> => {
+  const ai = getAIClient();
   const sampleData = JSON.stringify(dataset.rows.slice(0, 30)); 
   const prompt = `
     Hypothesis to test: ${hypothesis.title} - ${hypothesis.description}
@@ -99,6 +108,7 @@ export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): 
     model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
+      thinkingConfig: { thinkingBudget: 4000 },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -127,6 +137,7 @@ export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): 
 };
 
 export const generateExecutiveVerdict = async (dataset: Dataset, profile: string, hypotheses: Hypothesis[], userGoal?: string): Promise<string> => {
+  const ai = getAIClient();
   const findingsSummary = hypotheses.map(h => `- **${h.title}**: ${h.finding}`).join('\n');
   const goalContext = userGoal 
     ? `The user's specific mission objective was: "${userGoal}". YOU MUST DIRECTLY RESOLVE THIS OBJECTIVE in the first paragraph.` 
@@ -156,7 +167,7 @@ export const generateExecutiveVerdict = async (dataset: Dataset, profile: string
     model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
-      thinkingConfig: { thinkingBudget: 2000 }
+      thinkingConfig: { thinkingBudget: 8000 }
     }
   });
 
@@ -164,6 +175,7 @@ export const generateExecutiveVerdict = async (dataset: Dataset, profile: string
 };
 
 export const queryCouncil = async (dataset: Dataset, query: string, history: ChatMessage[], profile: string): Promise<string> => {
+  const ai = getAIClient();
   const sampleData = JSON.stringify(dataset.rows.slice(0, 20));
   const chatHistory = history.map(m => `${m.role}: ${m.content}`).join('\n');
   
@@ -189,6 +201,7 @@ export const queryCouncil = async (dataset: Dataset, query: string, history: Cha
 };
 
 export const transcribeAudio = async (base64Data: string, mimeType: string): Promise<string> => {
+  const ai = getAIClient();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: [
@@ -204,6 +217,7 @@ export const transcribeAudio = async (base64Data: string, mimeType: string): Pro
 };
 
 export const generateBriefingAudio = async (text: string) => {
+  const ai = getAIClient();
   const prompt = `Read this executive summary clearly and professionally, like a high-end data consultant. Only read the main body text, skip headers like 'Executive Verdict': ${text}`;
   
   const response = await ai.models.generateContent({

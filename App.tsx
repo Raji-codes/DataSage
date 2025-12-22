@@ -104,6 +104,12 @@ const App: React.FC = () => {
   const startProcess = async () => {
     if (!pendingDataset) return;
     
+    // Safety check for API Key
+    if (!process.env.API_KEY || process.env.API_KEY === 'undefined') {
+      addLog("❌ ERROR: API Key is missing or invalid. Check your environment setup.");
+      return;
+    }
+
     let data = pendingDataset;
     
     if (privacyMode) {
@@ -126,16 +132,17 @@ const App: React.FC = () => {
     try {
       addLog("Profiling dataset structure and quality...");
       const profile = await profileDataset(data);
-      addLog("Data profile generated successfully.");
+      addLog("✅ Data profile generated successfully.");
       
       setAnalysis(prev => ({ ...prev, stage: 'hypothesizing' }));
+      addLog("Generating scientific hypotheses...");
       const hypotheses = await generateHypotheses(data, profile, userGoal);
       setAnalysis(prev => ({ ...prev, hypotheses }));
       
       setAnalysis(prev => ({ ...prev, stage: 'analyzing' }));
       for (let i = 0; i < hypotheses.length; i++) {
         const h = hypotheses[i];
-        addLog(`Testing hypothesis: ${h.title}...`);
+        addLog(`🔬 Testing hypothesis [${i + 1}/${hypotheses.length}]: ${h.title}...`);
         const result = await testHypothesis(data, h);
         const completedH = { ...h, ...result, status: 'completed' } as Hypothesis;
         setAnalysis(prev => ({
@@ -145,12 +152,27 @@ const App: React.FC = () => {
       }
 
       setAnalysis(prev => ({ ...prev, stage: 'reporting' }));
+      addLog("Synthesizing final executive verdict...");
       const finalVerdict = await generateExecutiveVerdict(data, profile, hypotheses, userGoal);
       setAnalysis(prev => ({ ...prev, summary: finalVerdict, isProcessing: false }));
-      addLog("MISSION ACCOMPLISHED.");
-    } catch (error) {
-      console.error(error);
-      addLog("CRITICAL ERROR during analysis.");
+      addLog("✨ MISSION ACCOMPLISHED.");
+    } catch (error: any) {
+      console.error("DataSage Engine Failure:", error);
+      
+      let friendlyError = "Analysis interrupted by a service error.";
+      if (error?.message) {
+        if (error.message.includes("API key")) {
+          friendlyError = "Invalid API Key. Please verify your credentials.";
+        } else if (error.message.includes("quota") || error.message.includes("429")) {
+          friendlyError = "API Quota exceeded. Please try again in 60 seconds.";
+        } else if (error.message.includes("model")) {
+          friendlyError = "Selected Gemini model is currently unavailable.";
+        } else {
+          friendlyError = `System Error: ${error.message}`;
+        }
+      }
+      
+      addLog(`❌ CRITICAL FAILURE: ${friendlyError}`);
       setAnalysis(prev => ({ ...prev, isProcessing: false, stage: 'idle' }));
     }
   };
@@ -164,8 +186,9 @@ const App: React.FC = () => {
       const response = await queryCouncil(dataset, content, analysis.chat, analysis.summary);
       const sageMsg: ChatMessage = { role: 'sage', content: response, timestamp: new Date() };
       setAnalysis(prev => ({ ...prev, chat: [...prev.chat, sageMsg] }));
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      addLog(`⚠️ Inquiry failed: ${err.message || "Communication error."}`);
     } finally {
       setIsProcessingChat(false);
     }
