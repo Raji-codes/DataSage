@@ -32,7 +32,6 @@ const App: React.FC = () => {
     isAudioPlaying: false,
   });
 
-  // Re-sync identity when authentication state changes
   useEffect(() => {
     if (isAuthenticated) {
       setUserIdentity(getIdentity());
@@ -104,7 +103,6 @@ const App: React.FC = () => {
   const startProcess = async () => {
     if (!pendingDataset) return;
     
-    // UI TRANSITION: Switch to Dashboard Immediately
     let data = pendingDataset;
     if (privacyMode) {
       const maskedRows = maskSensitiveData(data.headers, data.rows);
@@ -129,7 +127,6 @@ const App: React.FC = () => {
         addLog("🔓 Processing raw data attributes...");
       }
 
-      // Initial sanity check - if the client fails to init, it will throw here
       addLog("Profiling dataset structure and quality...");
       const profile = await profileDataset(data);
       addLog("✅ Data profile generated successfully.");
@@ -179,7 +176,6 @@ const App: React.FC = () => {
     setAnalysis(prev => ({ ...prev, chat: [...prev.chat, userMsg] }));
     setIsProcessingChat(true);
     try {
-      // Create a profile string from current hypotheses if summary isn't ready
       const profileContext = analysis.summary || "In-progress dataset analysis";
       const response = await queryCouncil(dataset, content, analysis.chat, profileContext);
       const sageMsg: ChatMessage = { role: 'sage', content: response, timestamp: new Date() };
