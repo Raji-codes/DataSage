@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { AnalysisView } from './components/AnalysisView';
 import { Login } from './components/Login';
@@ -17,7 +17,7 @@ const App: React.FC = () => {
   const [isProcessingChat, setIsProcessingChat] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [privacyMode, setPrivacyMode] = useState(true);
+  const [privacyMode, setPrivacyMode] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -116,6 +116,8 @@ const App: React.FC = () => {
       addLog("🛡️ Privacy Shield Active: Masking sensitive PII columns...");
       const maskedRows = maskSensitiveData(data.headers, data.rows);
       data = { ...data, rows: maskedRows };
+    } else {
+      addLog("🔓 Privacy Shield Disabled: Processing raw data for brand-specific insights.");
     }
 
     setDataset(data);
@@ -140,20 +142,32 @@ const App: React.FC = () => {
       setAnalysis(prev => ({ ...prev, hypotheses }));
       
       setAnalysis(prev => ({ ...prev, stage: 'analyzing' }));
-      for (let i = 0; i < hypotheses.length; i++) {
-        const h = hypotheses[i];
-        addLog(`🔬 Testing hypothesis [${i + 1}/${hypotheses.length}]: ${h.title}...`);
-        const result = await testHypothesis(data, h);
-        const completedH = { ...h, ...result, status: 'completed' } as Hypothesis;
-        setAnalysis(prev => ({
-          ...prev,
-          hypotheses: prev.hypotheses.map((hyp, idx) => idx === i ? completedH : hyp)
-        }));
-      }
+      addLog(`🔬 Initiating Parallel Analysis of ${hypotheses.length} hypotheses...`);
+      
+      // Parallel execution: This is the major performance fix
+      const testPromises = hypotheses.map(async (h) => {
+        try {
+          const result = await testHypothesis(data, h);
+          const completedH = { ...h, ...result, status: 'completed' } as Hypothesis;
+          
+          // Update individual hypothesis as it finishes to keep UI reactive
+          setAnalysis(prev => ({
+            ...prev,
+            hypotheses: prev.hypotheses.map(hyp => hyp.id === h.id ? completedH : hyp)
+          }));
+          return completedH;
+        } catch (err) {
+          console.error(`Hypothesis ${h.id} failed:`, err);
+          return { ...h, status: 'failed' } as Hypothesis;
+        }
+      });
+
+      const testedHypotheses = await Promise.all(testPromises);
+      addLog("✅ All hypotheses analyzed concurrently.");
 
       setAnalysis(prev => ({ ...prev, stage: 'reporting' }));
       addLog("Synthesizing final executive verdict...");
-      const finalVerdict = await generateExecutiveVerdict(data, profile, hypotheses, userGoal);
+      const finalVerdict = await generateExecutiveVerdict(data, profile, testedHypotheses, userGoal);
       setAnalysis(prev => ({ ...prev, summary: finalVerdict, isProcessing: false }));
       addLog("✨ MISSION ACCOMPLISHED.");
     } catch (error: any) {
@@ -183,7 +197,8 @@ const App: React.FC = () => {
     setAnalysis(prev => ({ ...prev, chat: [...prev.chat, userMsg] }));
     setIsProcessingChat(true);
     try {
-      const response = await queryCouncil(dataset, content, analysis.chat, analysis.summary);
+      const profile = dataset.summary || "General dataset analysis"; // Fallback
+      const response = await queryCouncil(dataset, content, analysis.chat, profile);
       const sageMsg: ChatMessage = { role: 'sage', content: response, timestamp: new Date() };
       setAnalysis(prev => ({ ...prev, chat: [...prev.chat, sageMsg] }));
     } catch (err: any) {
@@ -233,10 +248,15 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center space-x-4">
-              {privacyMode && (
+              {privacyMode ? (
                 <div className="flex items-center space-x-1.5 bg-green-50 px-2 py-1 rounded-md border border-green-100 animate-pulse">
                   <i className="fas fa-shield-alt text-green-600 text-[10px]"></i>
                   <span className="text-[8px] font-black uppercase text-green-700 tracking-wider">Privacy Active</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1.5 bg-amber-50 px-2 py-1 rounded-md border border-amber-100">
+                  <i className="fas fa-lock-open text-amber-600 text-[10px]"></i>
+                  <span className="text-[8px] font-black uppercase text-amber-700 tracking-wider">Raw Mode</span>
                 </div>
               )}
               

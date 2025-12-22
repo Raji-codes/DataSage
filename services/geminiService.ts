@@ -4,7 +4,6 @@ import { Dataset, Hypothesis, ChatMessage } from "../types";
 
 /**
  * Helper to safely get API key from environment.
- * Note: process.env.API_KEY is injected by the environment.
  */
 const getApiKey = () => {
   try {
@@ -14,10 +13,6 @@ const getApiKey = () => {
   }
 };
 
-/**
- * Factory to create a new AI instance.
- * This ensures we always use the current state of process.env.API_KEY.
- */
 const getAIClient = () => new GoogleGenAI({ apiKey: getApiKey() });
 
 export const profileDataset = async (dataset: Dataset) => {
@@ -35,7 +30,7 @@ export const profileDataset = async (dataset: Dataset) => {
     3. Summarize the key columns and their importance.
   `;
 
-  // Using Flash for initial profiling for speed and reliability
+  // Use Flash for Profiling to save time
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt,
@@ -60,11 +55,11 @@ export const generateHypotheses = async (dataset: Dataset, profilingInfo: string
     Return the hypotheses as a JSON array.
   `;
 
+  // Use Flash for high-speed hypothesis brainstorming
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-flash-preview',
     contents: prompt,
     config: {
-      thinkingConfig: { thinkingBudget: 4000 },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
@@ -91,7 +86,7 @@ export const generateHypotheses = async (dataset: Dataset, profilingInfo: string
 
 export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): Promise<Partial<Hypothesis>> => {
   const ai = getAIClient();
-  const sampleData = JSON.stringify(dataset.rows.slice(0, 30)); 
+  const sampleData = JSON.stringify(dataset.rows.slice(0, 25)); // Slightly smaller sample for faster throughput
   const prompt = `
     Hypothesis to test: ${hypothesis.title} - ${hypothesis.description}
     Data Context: ${dataset.headers.join(', ')}
@@ -104,11 +99,12 @@ export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): 
     4. Choose a chartType (bar, line, pie, or scatter).
   `;
 
+  // Use Pro with a lower budget for balanced depth vs speed
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
-      thinkingConfig: { thinkingBudget: 4000 },
+      thinkingConfig: { thinkingBudget: 2000 },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -139,39 +135,69 @@ export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): 
 export const generateExecutiveVerdict = async (dataset: Dataset, profile: string, hypotheses: Hypothesis[], userGoal?: string): Promise<string> => {
   const ai = getAIClient();
   const findingsSummary = hypotheses.map(h => `- **${h.title}**: ${h.finding}`).join('\n');
-  const goalContext = userGoal 
-    ? `The user's specific mission objective was: "${userGoal}". YOU MUST DIRECTLY RESOLVE THIS OBJECTIVE in the first paragraph.` 
-    : "Summarize the overall health and major patterns of this dataset.";
-
+  
   const prompt = `
-    Act as the DataSage Council (Expert Profiler, Theorist, and Statistician). 
-    You have just completed an autonomous analysis of the dataset: ${dataset.name}.
+    Act as the DataSage Council. Provide a "Decision-Ready" Intelligence Report.
 
-    Context:
-    - Data Profile: ${profile}
-    - Statistical Test Results:
-    ${findingsSummary}
+    DATA CONTEXT:
+    - Dataset: ${dataset.name}
+    - Mission Objective: "${userGoal || 'Discovery and Optimization'}"
+    - Profile: ${profile}
+    - Test Findings: ${findingsSummary}
 
-    MISSION: Provide a structured Executive Verdict.
+    MISSION: Produce a high-readability Markdown report using the following EXACT structure.
+
+    # 🛡️ EXECUTIVE BRIEFING: [Concise Title]
     
-    FORMATTING RULES:
-    1. Start with a "# EXECUTIVE VERDICT" header.
-    2. The first section must be "## MISSION RESOLUTION" - answer the user's prompt: "${userGoal || 'Analyze data patterns'}".
-    3. The second section should be "## KEY INSIGHTS" - summarize the 3 most critical statistical findings.
-    4. The third section should be "## STRATEGIC RECOMMENDATION" - what should the user do next?
-    
-    Use professional, decisive, and data-driven language. Use Markdown for all formatting.
+    > ### 💡 KEY INSIGHT (The TL;DR)
+    > [Summarize the most critical finding in ONE bold sentence.]
+
+    ---
+
+    ## 🎯 MISSION RESOLUTION
+    **Question:** ${userGoal || 'What are the key drivers in this data?'}
+    **Verdict:** [Provide a direct, punchy answer based on the evidence. Use bold text for key metrics or entities.]
+
+    ---
+
+    ## 🔍 COUNCIL PERSPECTIVES
+    ### 📈 The Statistician (The Numbers)
+    [Explain the raw data patterns and correlations. What is the mathematical "truth" here?]
+
+    ### 🛠️ The Profiler (Data Health)
+    [Comment on the quality, integrity, and hidden nuances of the data. Are there any "blind spots"?]
+
+    ### 💡 The Theorist (Strategic Impact)
+    [What does this mean for the future? Why does this pattern exist in the real world?]
+
+    ---
+
+    ## 📊 DATA SCORECARD
+    | Attribute | Rating | Assessment |
+    | :--- | :--- | :--- |
+    | **Data Integrity** | [1-5] ⭐ | [Short comment] |
+    | **Certainty** | [1-5] ⭐ | [Short comment] |
+    | **Actionability** | [1-5] ⭐ | [Short comment] |
+
+    ---
+
+    ## 🛠️ STRATEGIC ROADMAP
+    - [ ] **Priority 1 (Critical):** [Action item based on results]
+    - [ ] **Priority 2 (Standard):** [Action item for further study]
+    - [ ] **Priority 3 (Optimization):** [Future recommendation]
+
+    Maintain an authoritative, professional tone. Use Markdown formatting (bold, tables, lists) to make it visually scannable.
   `;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
-      thinkingConfig: { thinkingBudget: 8000 }
+      thinkingConfig: { thinkingBudget: 4000 } // Reduced from 8000 for faster synthesis
     }
   });
 
-  return response.text || "Analysis complete, but the Council is speechless. Please check individual findings.";
+  return response.text || "Report generation failed. Please consult individual test findings.";
 };
 
 export const queryCouncil = async (dataset: Dataset, query: string, history: ChatMessage[], profile: string): Promise<string> => {
@@ -192,12 +218,13 @@ export const queryCouncil = async (dataset: Dataset, query: string, history: Cha
     Answer the user with the combined wisdom of a Profiler, Theorist, and Statistician. Be concise, technical, and insightful.
   `;
 
+  // Always Flash for Chat to maintain responsiveness
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt
   });
 
-  return response.text || "The Council is currently pondering that. Please try another query.";
+  return response.text || "Communication lost.";
 };
 
 export const transcribeAudio = async (base64Data: string, mimeType: string): Promise<string> => {
@@ -207,7 +234,7 @@ export const transcribeAudio = async (base64Data: string, mimeType: string): Pro
     contents: [
       {
         parts: [
-          { text: "Transcribe the following audio precisely. Only return the transcribed text, nothing else. If there is no speech, return an empty string." },
+          { text: "Transcribe precisely. Only return text." },
           { inlineData: { data: base64Data, mimeType } }
         ]
       }
@@ -218,7 +245,7 @@ export const transcribeAudio = async (base64Data: string, mimeType: string): Pro
 
 export const generateBriefingAudio = async (text: string) => {
   const ai = getAIClient();
-  const prompt = `Read this executive summary clearly and professionally, like a high-end data consultant. Only read the main body text, skip headers like 'Executive Verdict': ${text}`;
+  const prompt = `Read this report summary professionally: ${text}`;
   
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
@@ -237,7 +264,6 @@ export const generateBriefingAudio = async (text: string) => {
   return base64Audio;
 };
 
-// Utils for audio handling
 export const decodeBase64ToUint8Array = (base64: string) => {
   const binaryString = atob(base64);
   const len = binaryString.length;
