@@ -3,17 +3,10 @@ import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/ge
 import { Dataset, Hypothesis, ChatMessage } from "../types";
 
 /**
- * Helper to safely get API key from environment.
+ * Helper to get the AI client.
+ * Strictly uses process.env.API_KEY as per requirements.
  */
-const getApiKey = () => {
-  try {
-    return (typeof process !== 'undefined' && process.env?.API_KEY) || '';
-  } catch (e) {
-    return '';
-  }
-};
-
-const getAIClient = () => new GoogleGenAI({ apiKey: getApiKey() });
+const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const profileDataset = async (dataset: Dataset) => {
   const ai = getAIClient();

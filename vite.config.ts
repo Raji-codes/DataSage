@@ -5,8 +5,13 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   define: {
-    // Shimming process.env for the browser to satisfy SDK requirements
+    // Ensure process.env.API_KEY is available to the browser
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
-    'process.env': {}
+    // Fallback for process.env to prevent ReferenceErrors
+    'process': {
+      env: {
+        API_KEY: JSON.stringify(process.env.API_KEY)
+      }
+    }
   }
 });

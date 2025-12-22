@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { AnalysisView } from './components/AnalysisView';
 import { Login } from './components/Login';
@@ -104,27 +104,18 @@ const App: React.FC = () => {
   const startProcess = async () => {
     if (!pendingDataset) return;
     
-    // Safety check for API Key
-    if (!process.env.API_KEY || process.env.API_KEY === 'undefined') {
-      addLog("❌ ERROR: API Key is missing or invalid. Check your environment setup.");
-      return;
-    }
-
+    // UI TRANSITION: Switch to Dashboard Immediately
     let data = pendingDataset;
-    
     if (privacyMode) {
-      addLog("🛡️ Privacy Shield Active: Masking sensitive PII columns...");
       const maskedRows = maskSensitiveData(data.headers, data.rows);
       data = { ...data, rows: maskedRows };
-    } else {
-      addLog("🔓 Privacy Shield Disabled: Processing raw data for brand-specific insights.");
     }
-
+    
     setDataset(data);
     setAnalysis({
       isProcessing: true,
       stage: 'cleaning',
-      logs: [`Initiating ${userGoal ? 'Directed' : 'Autonomous'} analysis for ${data.name}...`],
+      logs: [`🚀 Igniting Sage Engine for ${data.name}...`],
       hypotheses: [],
       summary: '',
       chat: [],
@@ -132,6 +123,13 @@ const App: React.FC = () => {
     });
 
     try {
+      if (privacyMode) {
+        addLog("🛡️ Privacy Shield Active: Masking sensitive PII columns...");
+      } else {
+        addLog("🔓 Processing raw data attributes...");
+      }
+
+      // Initial sanity check - if the client fails to init, it will throw here
       addLog("Profiling dataset structure and quality...");
       const profile = await profileDataset(data);
       addLog("✅ Data profile generated successfully.");
@@ -144,13 +142,11 @@ const App: React.FC = () => {
       setAnalysis(prev => ({ ...prev, stage: 'analyzing' }));
       addLog(`🔬 Initiating Parallel Analysis of ${hypotheses.length} hypotheses...`);
       
-      // Parallel execution: This is the major performance fix
       const testPromises = hypotheses.map(async (h) => {
         try {
           const result = await testHypothesis(data, h);
           const completedH = { ...h, ...result, status: 'completed' } as Hypothesis;
           
-          // Update individual hypothesis as it finishes to keep UI reactive
           setAnalysis(prev => ({
             ...prev,
             hypotheses: prev.hypotheses.map(hyp => hyp.id === h.id ? completedH : hyp)
@@ -172,21 +168,7 @@ const App: React.FC = () => {
       addLog("✨ MISSION ACCOMPLISHED.");
     } catch (error: any) {
       console.error("DataSage Engine Failure:", error);
-      
-      let friendlyError = "Analysis interrupted by a service error.";
-      if (error?.message) {
-        if (error.message.includes("API key")) {
-          friendlyError = "Invalid API Key. Please verify your credentials.";
-        } else if (error.message.includes("quota") || error.message.includes("429")) {
-          friendlyError = "API Quota exceeded. Please try again in 60 seconds.";
-        } else if (error.message.includes("model")) {
-          friendlyError = "Selected Gemini model is currently unavailable.";
-        } else {
-          friendlyError = `System Error: ${error.message}`;
-        }
-      }
-      
-      addLog(`❌ CRITICAL FAILURE: ${friendlyError}`);
+      addLog(`❌ FAILURE: ${error.message || "Unknown error during analysis."}`);
       setAnalysis(prev => ({ ...prev, isProcessing: false, stage: 'idle' }));
     }
   };
@@ -197,8 +179,9 @@ const App: React.FC = () => {
     setAnalysis(prev => ({ ...prev, chat: [...prev.chat, userMsg] }));
     setIsProcessingChat(true);
     try {
-      const profile = dataset.summary || "General dataset analysis"; // Fallback
-      const response = await queryCouncil(dataset, content, analysis.chat, profile);
+      // Create a profile string from current hypotheses if summary isn't ready
+      const profileContext = analysis.summary || "In-progress dataset analysis";
+      const response = await queryCouncil(dataset, content, analysis.chat, profileContext);
       const sageMsg: ChatMessage = { role: 'sage', content: response, timestamp: new Date() };
       setAnalysis(prev => ({ ...prev, chat: [...prev.chat, sageMsg] }));
     } catch (err: any) {
