@@ -89,10 +89,10 @@ const App: React.FC = () => {
     }
   };
 
-  const addLog = (message: string) => {
+  const addLog = (agent: string, message: string) => {
     setAnalysis(prev => ({
       ...prev,
-      logs: [...prev.logs, `${new Date().toLocaleTimeString()} - ${message}`]
+      logs: [...prev.logs, `[${agent}] ${new Date().toLocaleTimeString()} - ${message}`]
     }));
   };
 
@@ -113,7 +113,7 @@ const App: React.FC = () => {
     setAnalysis({
       isProcessing: true,
       stage: 'cleaning',
-      logs: [`🚀 Igniting Sage Engine for ${data.name}...`],
+      logs: [`🚀 SYSTEM: Initializing Council Core for ${data.name}...`],
       hypotheses: [],
       summary: '',
       chat: [],
@@ -122,22 +122,20 @@ const App: React.FC = () => {
 
     try {
       if (privacyMode) {
-        addLog("🛡️ Privacy Shield Active: Masking sensitive PII columns...");
-      } else {
-        addLog("🔓 Processing raw data attributes...");
+        addLog("SHIELD", "Privacy Masking active. PII filtered out.");
       }
 
-      addLog("Profiling dataset structure and quality...");
+      addLog("PROFILER", "Scanning dataset for patterns and structural anomalies...");
       const profile = await profileDataset(data);
-      addLog("✅ Data profile generated successfully.");
+      addLog("PROFILER", "Data profile locked. Metadata established.");
       
       setAnalysis(prev => ({ ...prev, stage: 'hypothesizing' }));
-      addLog("Generating scientific hypotheses...");
+      addLog("THEORIST", "Brainstorming high-probability hypotheses...");
       const hypotheses = await generateHypotheses(data, profile, userGoal);
       setAnalysis(prev => ({ ...prev, hypotheses }));
       
       setAnalysis(prev => ({ ...prev, stage: 'analyzing' }));
-      addLog(`🔬 Initiating Parallel Analysis of ${hypotheses.length} hypotheses...`);
+      addLog("STATISTICIAN", `Executing parallel tests on ${hypotheses.length} key theories...`);
       
       const testPromises = hypotheses.map(async (h) => {
         try {
@@ -156,16 +154,16 @@ const App: React.FC = () => {
       });
 
       const testedHypotheses = await Promise.all(testPromises);
-      addLog("✅ All hypotheses analyzed concurrently.");
+      addLog("STATISTICIAN", "Core testing phase completed. Significance levels verified.");
 
       setAnalysis(prev => ({ ...prev, stage: 'reporting' }));
-      addLog("Synthesizing final executive verdict...");
+      addLog("COUNCIL", "Synthesizing Executive Verdict. Preparing briefing...");
       const finalVerdict = await generateExecutiveVerdict(data, profile, testedHypotheses, userGoal);
       setAnalysis(prev => ({ ...prev, summary: finalVerdict, isProcessing: false }));
-      addLog("✨ MISSION ACCOMPLISHED.");
+      addLog("SYSTEM", "✨ Intelligence Mission Accomplished.");
     } catch (error: any) {
       console.error("DataSage Engine Failure:", error);
-      addLog(`❌ FAILURE: ${error.message || "Unknown error during analysis."}`);
+      addLog("SYSTEM", `❌ ERROR: ${error.message || "Unknown engine failure."}`);
       setAnalysis(prev => ({ ...prev, isProcessing: false, stage: 'idle' }));
     }
   };
@@ -182,7 +180,7 @@ const App: React.FC = () => {
       setAnalysis(prev => ({ ...prev, chat: [...prev.chat, sageMsg] }));
     } catch (err: any) {
       console.error(err);
-      addLog(`⚠️ Inquiry failed: ${err.message || "Communication error."}`);
+      addLog("COUNCIL", `⚠️ Inquiry warning: ${err.message}`);
     } finally {
       setIsProcessingChat(false);
     }
@@ -221,28 +219,16 @@ const App: React.FC = () => {
                   {userIdentity?.username?.charAt(0).toUpperCase() || 'U'}
                </div>
                <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-slate-700 leading-none">Agent {userIdentity?.username || 'User'}</span>
-                  <span className="text-[8px] font-bold text-slate-400 mt-0.5">{userIdentity?.phone || 'Secured Profile'}</span>
+                  <span className="text-[10px] font-black text-slate-700 leading-none">{userIdentity?.username || 'User'}</span>
+                  <span className="text-[8px] font-bold text-slate-400 mt-0.5">Council Agent</span>
                </div>
             </div>
 
             <div className="flex items-center space-x-4">
-              {privacyMode ? (
-                <div className="flex items-center space-x-1.5 bg-green-50 px-2 py-1 rounded-md border border-green-100 animate-pulse">
-                  <i className="fas fa-shield-alt text-green-600 text-[10px]"></i>
-                  <span className="text-[8px] font-black uppercase text-green-700 tracking-wider">Privacy Active</span>
-                </div>
-              ) : (
-                <div className="flex items-center space-x-1.5 bg-amber-50 px-2 py-1 rounded-md border border-amber-100">
-                  <i className="fas fa-lock-open text-amber-600 text-[10px]"></i>
-                  <span className="text-[8px] font-black uppercase text-amber-700 tracking-wider">Raw Mode</span>
-                </div>
-              )}
-              
               <button 
                 onClick={handleLogout}
                 className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-all group border border-slate-200 shadow-sm"
-                title="End Secure Session"
+                title="End Session"
               >
                 <i className="fas fa-sign-out-alt text-xs group-hover:rotate-12 transition-transform"></i>
               </button>
@@ -263,21 +249,21 @@ const App: React.FC = () => {
           <div className="max-w-2xl mx-auto text-center py-8">
              <div className="mb-8 inline-block">
                <span className="bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-[0.2em] px-4 py-2 rounded-full border border-indigo-100">
-                 Welcome Back, Investigator {userIdentity?.username.split(' ')[0]}
+                 System Ready for Organization Intelligence
                </span>
              </div>
             <h2 className="text-5xl font-black text-slate-900 mb-6 leading-tight">
-              Turn raw data into <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">intelligence</span>.
+              Unlock the <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">Science</span> in your Data.
             </h2>
             <p className="text-lg text-slate-500 mb-8 leading-relaxed max-w-lg mx-auto">
-              Our autonomous Council of Agents cleans, theorizes, and visualizes your datasets in seconds.
+              Our autonomous Council of Agents performs deep analysis, theorizes outcomes, and visualizes trends.
             </p>
 
             <div className="space-y-6 bg-white p-8 rounded-[2rem] shadow-xl border border-slate-200">
               <div className="text-left">
                 <div className="flex items-center justify-between mb-3">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                    1. Load Dataset
+                    1. Upload Large Dataset
                   </label>
                   <button 
                     onClick={() => setPrivacyMode(!privacyMode)}
@@ -286,22 +272,16 @@ const App: React.FC = () => {
                     }`}
                   >
                     <i className={`fas ${privacyMode ? 'fa-lock' : 'fa-lock-open'}`}></i>
-                    <span>Privacy Shield: {privacyMode ? 'Enabled' : 'Disabled'}</span>
+                    <span>Privacy Shield: {privacyMode ? 'On' : 'Off'}</span>
                   </button>
                 </div>
                 <FileUpload onUpload={handleDatasetReady} />
-                {pendingDataset && (
-                   <div className="mt-3 flex items-center space-x-2 text-green-600 text-xs font-bold animate-fadeIn">
-                     <i className="fas fa-check-circle"></i>
-                     <span>{pendingDataset.name} ready ({pendingDataset.rows.length.toLocaleString()} rows)</span>
-                   </div>
-                )}
               </div>
 
               <div className="text-left relative">
                 <div className="flex items-center justify-between mb-3">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                    2. Define Mission Objective (Optional)
+                    2. Specific Problem Statement?
                   </label>
                   <button 
                     onClick={toggleRecording}
@@ -310,24 +290,24 @@ const App: React.FC = () => {
                     }`}
                   >
                     <i className={`fas ${isRecording ? 'fa-stop' : 'fa-microphone'}`}></i>
-                    <span>{isRecording ? 'Recording...' : isTranscribing ? 'Converting...' : 'Use Voice'}</span>
+                    <span>{isRecording ? 'Listening...' : 'Use Voice'}</span>
                   </button>
                 </div>
                 <textarea 
                   value={userGoal}
                   onChange={(e) => setUserGoal(e.target.value)}
-                  placeholder="e.g. 'I want to understand what drives customer churn' or 'How does seasonality affect sales?'"
-                  className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-none placeholder:text-slate-400"
+                  placeholder="e.g. 'Investigate the root cause of declining engagement' or 'How do demographics impact revenue?'"
+                  className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-none"
                 />
               </div>
 
               <button 
                 onClick={startProcess}
                 disabled={!pendingDataset}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center justify-center space-x-3 text-lg"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-3 text-lg"
               >
-                <i className="fas fa-rocket"></i>
-                <span>{userGoal ? 'Begin Directed Analysis' : 'Begin Full Autonomous Analysis'}</span>
+                <i className="fas fa-brain"></i>
+                <span>Begin Autonomous Analysis</span>
               </button>
             </div>
           </div>
@@ -336,34 +316,34 @@ const App: React.FC = () => {
             <div className="lg:col-span-1 space-y-6">
               <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl border border-slate-800 relative overflow-hidden">
                 <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl"></div>
-                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400 mb-6">Council Intel</h3>
-                <div className="space-y-6 relative z-10">
-                  {userGoal && (
-                    <div className="border-b border-slate-800 pb-3">
-                       <span className="text-[10px] font-black text-indigo-300 uppercase block mb-1">Mission Objective</span>
-                       <p className="text-xs text-slate-300 leading-relaxed italic">"{userGoal}"</p>
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400 mb-6">Autonomous Feed</h3>
+                <div className="h-96 overflow-y-auto space-y-3 text-[11px] font-mono scrollbar-hide">
+                  {analysis.logs.map((log, i) => (
+                    <div key={i} className="flex space-x-2 text-slate-400 border-b border-slate-800/50 pb-2">
+                       <span className="text-indigo-500">→</span>
+                       <span className="leading-tight">{log}</span>
+                    </div>
+                  ))}
+                  {analysis.isProcessing && (
+                    <div className="flex items-center space-x-2 text-indigo-400 italic">
+                      <i className="fas fa-circle-notch fa-spin"></i>
+                      <span>Council is deliberating...</span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <span className="text-xs font-medium text-slate-400">Total Observations</span>
-                    <span className="text-xl font-black text-white">{dataset.rows.length.toLocaleString()}</span>
-                  </div>
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <span className="text-xs font-medium text-slate-400">Dimensions</span>
-                    <span className="text-xl font-black text-white">{dataset.headers.length}</span>
-                  </div>
                 </div>
               </div>
 
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-4">Autonomous Stream</h3>
-                <div className="h-64 overflow-y-auto space-y-3 text-[11px] font-mono scrollbar-hide">
-                  {analysis.logs.map((log, i) => (
-                    <div key={i} className="flex space-x-2 text-slate-500">
-                       <span className="text-indigo-400">»</span>
-                       <span>{log}</span>
-                    </div>
-                  ))}
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-4">Dataset Stats</h3>
+                <div className="space-y-4">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Rows</span>
+                    <p className="text-xl font-black text-slate-900">{dataset.rows.length.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Features</span>
+                    <p className="text-xl font-black text-slate-900">{dataset.headers.length}</p>
+                  </div>
                 </div>
               </div>
             </div>

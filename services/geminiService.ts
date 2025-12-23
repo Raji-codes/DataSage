@@ -4,26 +4,38 @@ import { Dataset, Hypothesis, ChatMessage } from "../types";
 
 /**
  * Helper to get the AI client.
- * Strictly uses process.env.API_KEY as per requirements.
  */
 const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+/**
+ * Distributed sampling ensures the AI sees data from different parts of a large dataset.
+ */
+const getRepresentativeSample = (rows: any[], sampleSize: number = 30) => {
+  if (rows.length <= sampleSize) return rows;
+  const sample = [];
+  const step = Math.floor(rows.length / sampleSize);
+  for (let i = 0; i < rows.length; i += step) {
+    if (sample.length < sampleSize) sample.push(rows[i]);
+  }
+  return sample;
+};
+
 export const profileDataset = async (dataset: Dataset) => {
   const ai = getAIClient();
-  const sampleData = JSON.stringify(dataset.rows.slice(0, 15));
+  const sampleData = JSON.stringify(getRepresentativeSample(dataset.rows, 20));
   const prompt = `
-    Analyze this dataset structure and first few rows. 
+    Analyze this dataset structure for an Organization's Data Science initiative.
     Dataset Name: ${dataset.name}
     Headers: ${dataset.headers.join(', ')}
-    Sample Data (first 15 rows): ${sampleData}
+    Representative Sample: ${sampleData}
 
-    Perform a "Data Profiler" task. 
-    1. Identify what this dataset is about.
-    2. Detect potential anomalies or cleaning needs (missing values, weird types).
-    3. Summarize the key columns and their importance.
+    Perform a "Strategic Data Profile":
+    1. Identify the core business/scientific domain.
+    2. Assess data distribution and potential bias.
+    3. Detect anomalies, missingness, or structural issues.
+    4. Rank columns by analytical value (High/Medium/Low).
   `;
 
-  // Use Flash for Profiling to save time
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt,
@@ -35,20 +47,21 @@ export const profileDataset = async (dataset: Dataset) => {
 export const generateHypotheses = async (dataset: Dataset, profilingInfo: string, userGoal?: string): Promise<Hypothesis[]> => {
   const ai = getAIClient();
   const goalContext = userGoal 
-    ? `The user has a specific analytical goal: "${userGoal}". Prioritize generating hypotheses that directly investigate this goal.` 
-    : "The user has not specified a goal. Generate 4-5 diverse and high-impact hypotheses based on the data patterns.";
+    ? `Objective: "${userGoal}".` 
+    : "Objective: General Discovery and Optimization.";
 
   const prompt = `
-    Based on the following data profile, generate 4-5 interesting scientific or business hypotheses to test.
+    Based on this profile, act as a Council of Data Scientists. 
     Profile: ${profilingInfo}
     Headers: ${dataset.headers.join(', ')}
-    
     ${goalContext}
+
+    Generate 4-5 high-impact, testable hypotheses. 
+    Focus on correlation, root-cause analysis, and predictive potential.
 
     Return the hypotheses as a JSON array.
   `;
 
-  // Use Flash for high-speed hypothesis brainstorming
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt,
@@ -79,25 +92,22 @@ export const generateHypotheses = async (dataset: Dataset, profilingInfo: string
 
 export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): Promise<Partial<Hypothesis>> => {
   const ai = getAIClient();
-  const sampleData = JSON.stringify(dataset.rows.slice(0, 25)); // Slightly smaller sample for faster throughput
+  const sampleData = JSON.stringify(getRepresentativeSample(dataset.rows, 40));
   const prompt = `
-    Hypothesis to test: ${hypothesis.title} - ${hypothesis.description}
-    Data Context: ${dataset.headers.join(', ')}
-    Partial Data Sample: ${sampleData}
+    Hypothesis: ${hypothesis.title}
+    Context: ${dataset.headers.join(', ')}
+    Data Sample (Distributed): ${sampleData}
 
-    Act as an Autonomous Data Scientist. 
-    1. Analyze the relationship mentioned in the hypothesis based on the provided data sample.
-    2. Provide a 'finding' explaining if the data supports it.
-    3. Generate data for a visualization that best represents this analysis.
-    4. Choose a chartType (bar, line, pie, or scatter).
+    Perform a statistical/logic test. 
+    1. Does the sample support the hypothesis? Explain why (Finding).
+    2. Represent the trend in a structured chart format.
   `;
 
-  // Use Pro with a lower budget for balanced depth vs speed
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
-      thinkingConfig: { thinkingBudget: 2000 },
+      thinkingConfig: { thinkingBudget: 4000 },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -130,115 +140,68 @@ export const generateExecutiveVerdict = async (dataset: Dataset, profile: string
   const findingsSummary = hypotheses.map(h => `- **${h.title}**: ${h.finding}`).join('\n');
   
   const prompt = `
-    Act as the DataSage Council. Provide a "Decision-Ready" Intelligence Report.
+    Consolidate all findings into a "Council Executive Report".
+    Dataset: ${dataset.name}
+    Profile: ${profile}
+    Test Results: ${findingsSummary}
+    Objective: ${userGoal || "Exploratory Analysis"}
 
-    DATA CONTEXT:
-    - Dataset: ${dataset.name}
-    - Mission Objective: "${userGoal || 'Discovery and Optimization'}"
-    - Profile: ${profile}
-    - Test Findings: ${findingsSummary}
-
-    MISSION: Produce a high-readability Markdown report using the following EXACT structure.
-
-    # 🛡️ EXECUTIVE BRIEFING: [Concise Title]
-    
-    > ### 💡 KEY INSIGHT (The TL;DR)
-    > [Summarize the most critical finding in ONE bold sentence.]
-
-    ---
-
-    ## 🎯 MISSION RESOLUTION
-    **Question:** ${userGoal || 'What are the key drivers in this data?'}
-    **Verdict:** [Provide a direct, punchy answer based on the evidence. Use bold text for key metrics or entities.]
-
-    ---
-
-    ## 🔍 COUNCIL PERSPECTIVES
-    ### 📈 The Statistician (The Numbers)
-    [Explain the raw data patterns and correlations. What is the mathematical "truth" here?]
-
-    ### 🛠️ The Profiler (Data Health)
-    [Comment on the quality, integrity, and hidden nuances of the data. Are there any "blind spots"?]
-
-    ### 💡 The Theorist (Strategic Impact)
-    [What does this mean for the future? Why does this pattern exist in the real world?]
-
-    ---
-
-    ## 📊 DATA SCORECARD
-    | Attribute | Rating | Assessment |
-    | :--- | :--- | :--- |
-    | **Data Integrity** | [1-5] ⭐ | [Short comment] |
-    | **Certainty** | [1-5] ⭐ | [Short comment] |
-    | **Actionability** | [1-5] ⭐ | [Short comment] |
-
-    ---
-
-    ## 🛠️ STRATEGIC ROADMAP
-    - [ ] **Priority 1 (Critical):** [Action item based on results]
-    - [ ] **Priority 2 (Standard):** [Action item for further study]
-    - [ ] **Priority 3 (Optimization):** [Future recommendation]
-
-    Maintain an authoritative, professional tone. Use Markdown formatting (bold, tables, lists) to make it visually scannable.
+    Format: Professional Markdown. Use headings, bold highlights, and a "Strategic Roadmap" section.
   `;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
     contents: prompt,
     config: {
-      thinkingConfig: { thinkingBudget: 4000 } // Reduced from 8000 for faster synthesis
+      thinkingConfig: { thinkingBudget: 8000 }
     }
   });
 
-  return response.text || "Report generation failed. Please consult individual test findings.";
+  return response.text || "Report generation incomplete.";
 };
 
 export const queryCouncil = async (dataset: Dataset, query: string, history: ChatMessage[], profile: string): Promise<string> => {
   const ai = getAIClient();
-  const sampleData = JSON.stringify(dataset.rows.slice(0, 20));
+  const sampleData = JSON.stringify(getRepresentativeSample(dataset.rows, 20));
   const chatHistory = history.map(m => `${m.role}: ${m.content}`).join('\n');
   
   const prompt = `
-    You are the DataSage Council. You are discussing the dataset: ${dataset.name}.
-    Data Profile: ${profile}
+    You are the DataSage Council (Statistician, Profiler, and Business Strategist).
+    Dataset: ${dataset.name}
+    Profile: ${profile}
     Sample: ${sampleData}
+    History: ${chatHistory}
+    Question: ${query}
     
-    Previous Discussion:
-    ${chatHistory}
-    
-    User Query: ${query}
-    
-    Answer the user with the combined wisdom of a Profiler, Theorist, and Statistician. Be concise, technical, and insightful.
+    Answer as a collective intelligence. Be direct and data-driven.
   `;
 
-  // Always Flash for Chat to maintain responsiveness
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt
   });
 
-  return response.text || "Communication lost.";
+  return response.text || "Connection to the Council timed out.";
 };
 
 export const transcribeAudio = async (base64Data: string, mimeType: string): Promise<string> => {
   const ai = getAIClient();
+  // Fixed: Using the recommended multi-part format for sending audio with a text prompt.
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: [
-      {
-        parts: [
-          { text: "Transcribe precisely. Only return text." },
-          { inlineData: { data: base64Data, mimeType } }
-        ]
-      }
-    ]
+    contents: {
+      parts: [
+        { text: "Transcribe the following data science request." },
+        { inlineData: { data: base64Data, mimeType } }
+      ]
+    }
   });
   return response.text?.trim() || "";
 };
 
 export const generateBriefingAudio = async (text: string) => {
   const ai = getAIClient();
-  const prompt = `Read this report summary professionally: ${text}`;
+  const prompt = `Deliver this executive report summary with authority and clarity: ${text}`;
   
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
@@ -253,8 +216,7 @@ export const generateBriefingAudio = async (text: string) => {
     },
   });
 
-  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  return base64Audio;
+  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 };
 
 export const decodeBase64ToUint8Array = (base64: string) => {
