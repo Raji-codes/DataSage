@@ -1,222 +1,124 @@
-
-import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
-import { Dataset, Hypothesis, ChatMessage } from "../types";
+import { Dataset, Hypothesis, ChatMessage } from '../types';
 
 /**
- * Helper to get the AI client.
+ * Client-side Gemini service calling server-side API proxy endpoints.
+ * Keeps browser free from direct API calls and permissions errors.
  */
-const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-/**
- * Distributed sampling ensures the AI sees data from different parts of a large dataset.
- */
-const getRepresentativeSample = (rows: any[], sampleSize: number = 30) => {
-  if (rows.length <= sampleSize) return rows;
-  const sample = [];
-  const step = Math.floor(rows.length / sampleSize);
-  for (let i = 0; i < rows.length; i += step) {
-    if (sample.length < sampleSize) sample.push(rows[i]);
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs: number = 45000): Promise<Response> => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(id);
   }
-  return sample;
 };
 
-export const profileDataset = async (dataset: Dataset) => {
-  const ai = getAIClient();
-  const sampleData = JSON.stringify(getRepresentativeSample(dataset.rows, 20));
-  const prompt = `
-    Analyze this dataset structure for an Organization's Data Science initiative.
-    Dataset Name: ${dataset.name}
-    Headers: ${dataset.headers.join(', ')}
-    Representative Sample: ${sampleData}
-
-    Perform a "Strategic Data Profile":
-    1. Identify the core business/scientific domain.
-    2. Assess data distribution and potential bias.
-    3. Detect anomalies, missingness, or structural issues.
-    4. Rank columns by analytical value (High/Medium/Low).
-  `;
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: prompt,
-  });
-
-  return response.text;
-};
-
-export const generateHypotheses = async (dataset: Dataset, profilingInfo: string, userGoal?: string): Promise<Hypothesis[]> => {
-  const ai = getAIClient();
-  const goalContext = userGoal 
-    ? `Objective: "${userGoal}".` 
-    : "Objective: General Discovery and Optimization.";
-
-  const prompt = `
-    Based on this profile, act as a Council of Data Scientists. 
-    Profile: ${profilingInfo}
-    Headers: ${dataset.headers.join(', ')}
-    ${goalContext}
-
-    Generate 4-5 high-impact, testable hypotheses. 
-    Focus on correlation, root-cause analysis, and predictive potential.
-
-    Return the hypotheses as a JSON array.
-  `;
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            reasoning: { type: Type.STRING },
-          },
-          required: ["title", "description", "reasoning"]
-        }
+const handleApiResponse = async (response: Response, defaultErrorMsg: string) => {
+  if (!response.ok) {
+    let errorDetail = defaultErrorMsg;
+    try {
+      const data = await response.json();
+      if (data.error) {
+        errorDetail = data.error;
       }
+    } catch {
+      // ignore json parse failure
     }
-  });
-
-  const rawJson = JSON.parse(response.text || '[]');
-  return rawJson.map((h: any, index: number) => ({
-    ...h,
-    id: `hyp-${index}`,
-    status: 'pending'
-  }));
+    throw new Error(errorDetail);
+  }
+  return response.json();
 };
 
-export const testHypothesis = async (dataset: Dataset, hypothesis: Hypothesis): Promise<Partial<Hypothesis>> => {
-  const ai = getAIClient();
-  const sampleData = JSON.stringify(getRepresentativeSample(dataset.rows, 40));
-  const prompt = `
-    Hypothesis: ${hypothesis.title}
-    Context: ${dataset.headers.join(', ')}
-    Data Sample (Distributed): ${sampleData}
-
-    Perform a statistical/logic test. 
-    1. Does the sample support the hypothesis? Explain why (Finding).
-    2. Represent the trend in a structured chart format.
-  `;
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: prompt,
-    config: {
-      thinkingConfig: { thinkingBudget: 4000 },
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          finding: { type: Type.STRING },
-          chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'scatter'] },
-          chartData: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                name: { type: Type.STRING },
-                value: { type: Type.NUMBER },
-                x: { type: Type.NUMBER },
-                y: { type: Type.NUMBER },
-              }
-            }
-          }
-        },
-        required: ["finding", "chartType", "chartData"]
-      }
-    }
-  });
-
-  return JSON.parse(response.text || '{}');
+export const profileDataset = async (dataset: Dataset): Promise<string> => {
+  const res = await fetchWithTimeout('/api/gemini/profile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset }),
+  }, 45000);
+  const data = await handleApiResponse(res, 'Failed to profile dataset');
+  return data.profile || '';
 };
 
-export const generateExecutiveVerdict = async (dataset: Dataset, profile: string, hypotheses: Hypothesis[], userGoal?: string): Promise<string> => {
-  const ai = getAIClient();
-  const findingsSummary = hypotheses.map(h => `- **${h.title}**: ${h.finding}`).join('\n');
-  
-  const prompt = `
-    Consolidate all findings into a "Council Executive Report".
-    Dataset: ${dataset.name}
-    Profile: ${profile}
-    Test Results: ${findingsSummary}
-    Objective: ${userGoal || "Exploratory Analysis"}
-
-    Format: Professional Markdown. Use headings, bold highlights, and a "Strategic Roadmap" section.
-  `;
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: prompt,
-    config: {
-      thinkingConfig: { thinkingBudget: 8000 }
-    }
-  });
-
-  return response.text || "Report generation incomplete.";
+export const generateHypotheses = async (
+  dataset: Dataset,
+  profilingInfo: string,
+  userGoal?: string
+): Promise<Hypothesis[]> => {
+  const res = await fetchWithTimeout('/api/gemini/hypotheses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset, profilingInfo, userGoal }),
+  }, 45000);
+  const data = await handleApiResponse(res, 'Failed to generate hypotheses');
+  return data.hypotheses || [];
 };
 
-export const queryCouncil = async (dataset: Dataset, query: string, history: ChatMessage[], profile: string): Promise<string> => {
-  const ai = getAIClient();
-  const sampleData = JSON.stringify(getRepresentativeSample(dataset.rows, 20));
-  const chatHistory = history.map(m => `${m.role}: ${m.content}`).join('\n');
-  
-  const prompt = `
-    You are the DataSage Council (Statistician, Profiler, and Business Strategist).
-    Dataset: ${dataset.name}
-    Profile: ${profile}
-    Sample: ${sampleData}
-    History: ${chatHistory}
-    Question: ${query}
-    
-    Answer as a collective intelligence. Be direct and data-driven.
-  `;
+export const testHypothesis = async (
+  dataset: Dataset,
+  hypothesis: Hypothesis
+): Promise<Partial<Hypothesis>> => {
+  const res = await fetchWithTimeout('/api/gemini/test-hypothesis', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset, hypothesis }),
+  }, 45000);
+  return handleApiResponse(res, 'Failed to test hypothesis');
+};
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: prompt
-  });
+export const generateExecutiveVerdict = async (
+  dataset: Dataset,
+  profile: string,
+  hypotheses: Hypothesis[],
+  userGoal?: string
+): Promise<string> => {
+  const res = await fetchWithTimeout('/api/gemini/verdict', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset, profile, hypotheses, userGoal }),
+  }, 45000);
+  const data = await handleApiResponse(res, 'Failed to synthesize executive report');
+  return data.summary || '';
+};
 
-  return response.text || "Connection to the Council timed out.";
+export const queryCouncil = async (
+  dataset: Dataset,
+  query: string,
+  history: ChatMessage[],
+  profile: string
+): Promise<string> => {
+  const res = await fetchWithTimeout('/api/gemini/query-council', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset, query, history, profile }),
+  }, 45000);
+  const data = await handleApiResponse(res, 'Failed to query council');
+  return data.response || 'No response returned from council.';
 };
 
 export const transcribeAudio = async (base64Data: string, mimeType: string): Promise<string> => {
-  const ai = getAIClient();
-  // Fixed: Using the recommended multi-part format for sending audio with a text prompt.
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        { text: "Transcribe the following data science request." },
-        { inlineData: { data: base64Data, mimeType } }
-      ]
-    }
-  });
-  return response.text?.trim() || "";
+  const res = await fetchWithTimeout('/api/gemini/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base64Data, mimeType }),
+  }, 45000);
+  const data = await handleApiResponse(res, 'Failed to transcribe audio');
+  return data.text || '';
 };
 
-export const generateBriefingAudio = async (text: string) => {
-  const ai = getAIClient();
-  const prompt = `Deliver this executive report summary with authority and clarity: ${text}`;
-  
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: prompt }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Kore' },
-        },
-      },
-    },
-  });
-
-  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+export const generateBriefingAudio = async (text: string): Promise<string | undefined> => {
+  const res = await fetchWithTimeout('/api/gemini/briefing-audio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  }, 45000);
+  const data = await handleApiResponse(res, 'Failed to generate briefing audio');
+  return data.audioBase64 || undefined;
 };
 
 export const decodeBase64ToUint8Array = (base64: string) => {
@@ -233,9 +135,19 @@ export const decodeAudioData = async (
   data: Uint8Array,
   ctx: AudioContext,
   sampleRate: number = 24000,
-  numChannels: number = 1,
+  numChannels: number = 1
 ): Promise<AudioBuffer> => {
-  const dataInt16 = new Int16Array(data.buffer);
+  // Check if standard WAV header is present (RIFF)
+  if (data.length > 44 && data[0] === 0x52 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x46) {
+    try {
+      return await ctx.decodeAudioData(data.buffer.slice(0));
+    } catch (e) {
+      console.warn('Native WAV decoding failed, falling back to PCM slice', e);
+      data = data.slice(44);
+    }
+  }
+
+  const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
 
