@@ -16,14 +16,17 @@ export const Login: React.FC<LoginProps> = ({ onAuthenticated }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleResetIdentity = () => {
-    if (window.confirm("Switch profile? This will clear the active profile from this local browser.")) {
+    try {
       localStorage.removeItem('datasage_user_identity');
-      setIsNewUser(true);
-      setUsername('');
-      setPhone('');
-      setPasscode('');
-      setConfirmPasscode('');
+    } catch (e) {
+      console.warn("Storage access restricted", e);
     }
+    setIsNewUser(true);
+    setUsername('');
+    setPhone('');
+    setPasscode('');
+    setConfirmPasscode('');
+    setError('');
   };
 
   const handleGuestLogin = async () => {
